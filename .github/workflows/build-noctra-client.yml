@@ -1,0 +1,64 @@
+name: Build Noctra Client v2
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ["noctra-client-v2"]
+    paths:
+      - "client-builder/**"
+      - ".github/workflows/build-noctra-client.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout Noctra builder
+        uses: actions/checkout@v4
+
+      - name: Set up Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Set up Gradle cache
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Fetch pinned Velo foundation
+        run: |
+          git clone https://github.com/velo345/velo-client.git _upstream
+          cd _upstream
+          git checkout 82549ea546affe905ef735852b2f163684ddad74
+
+      - name: Apply Noctra patch
+        run: python3 client-builder/patch_noctra.py _upstream
+
+      - name: Build Fabric client
+        working-directory: _upstream
+        run: |
+          chmod +x gradlew
+          ./gradlew build --stacktrace
+
+      - name: Collect Minecraft 1.21.11 JAR
+        shell: bash
+        run: |
+          mkdir -p dist
+          JAR="$(find _upstream -type f -path '*/build/libs/noctra-client-*.jar' ! -name '*sources*' | grep '+1.21.11.jar$' | head -n 1)"
+          if [ -z "$JAR" ]; then
+            echo "No remapped Noctra 1.21.11 JAR found"
+            find _upstream -type f -path '*/build/libs/*.jar' -print
+            exit 1
+          fi
+          cp "$JAR" dist/NoctraClient-v2+1.21.11.jar
+          sha256sum dist/NoctraClient-v2+1.21.11.jar | tee dist/SHA256SUMS.txt
+
+      - name: Upload Noctra Client
+        uses: actions/upload-artifact@v4
+        with:
+          name: NoctraClient-v2-1.21.11
+          path: dist/*
+          if-no-files-found: error
